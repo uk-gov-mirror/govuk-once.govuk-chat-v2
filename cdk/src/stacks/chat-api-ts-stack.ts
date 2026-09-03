@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -35,7 +36,8 @@ export class ChatApiTsStack extends cdk.Stack {
     cdk.Tags.of(this).add('Environment', props.environment);
 
     const auth = this.cognitoAuth();
-    const apiGateway = this.apiGateway(props, auth);
+    const threadTable = this.threadTable();
+    const apiGateway = this.apiGateway(props, auth, threadTable);
 
     new cdk.CfnOutput(this, 'GatewayUrl', {
       value: apiGateway.url,
@@ -123,9 +125,25 @@ export class ChatApiTsStack extends cdk.Stack {
     };
   }
 
+  threadTable(): dynamodb.Table {
+    const tableName = `${getResourceNamePrefix()}-chat-api-ts-threads`;
+
+    return new dynamodb.Table(this, tableName, {
+      tableName,
+      partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: isEphemeralEnvironment()
+        ? cdk.RemovalPolicy.DESTROY
+        : cdk.RemovalPolicy.RETAIN,
+    });
+  }
+
   apiGateway(
     props: ChatApiTsStackProps,
     auth: CognitoAuth,
+    threadTable: dynamodb.Table,
   ): apigateway.RestApi {
     const api = new apigateway.RestApi(
       this,
@@ -145,7 +163,10 @@ export class ChatApiTsStack extends cdk.Stack {
 
     const agentStreamFunction = this.lambdaHandler('threads/invoke.ts', {
       AGENT_RUNTIME_ARN: props.agentRuntimeArn,
+      THREADS_TABLE_NAME: threadTable.tableName,
     });
+
+    threadTable.grantReadWriteData(agentStreamFunction);
 
     agentStreamFunction.addToRolePolicy(
       new iam.PolicyStatement({

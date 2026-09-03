@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import baseContext from '../../cdk.json' with { type: 'json' };
 import { Tags, Template, Match } from 'aws-cdk-lib/assertions';
-import { describe, it } from 'vitest';
+import { vi, describe, it, afterEach } from 'vitest';
 import { ChatApiTsStack } from './chat-api-ts-stack.ts';
 
 const context = {
@@ -32,6 +32,10 @@ describe('ChatApiTsStack', () => {
     return Tags.fromStack(stack);
   }
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   describe('Stack tags', () => {
     it('sets common tags', () => {
       stackTags().hasValues({
@@ -44,8 +48,12 @@ describe('ChatApiTsStack', () => {
   });
 
   describe('API lambda functions', () => {
-    it('creates the agent-stream lambda with AGENT_RUNTIME_ARN configured', () => {
+    it('creates the agent-stream lambda with its AGENT_RUNTIME_ARN and table name configured', () => {
       const template = stackTemplate();
+
+      const [tableId] = Object.keys(
+        template.findResources('AWS::DynamoDB::Table'),
+      );
 
       template.hasResourceProperties('AWS::Lambda::Function', {
         FunctionName: Match.stringLikeRegexp('chat-api-ts-threads-invoke-ts'),
@@ -53,8 +61,67 @@ describe('ChatApiTsStack', () => {
           Variables: Match.objectLike({
             AGENT_RUNTIME_ARN: baseProps.agentRuntimeArn,
             POWERTOOLS_SERVICE_NAME: 'chat-api-ts',
+            THREADS_TABLE_NAME: { Ref: tableId },
           }),
         },
+      });
+    });
+
+    it('grants the agent-stream lambda access to the thread table', () => {
+      const template = stackTemplate();
+
+      const [tableId] = Object.keys(
+        template.findResources('AWS::DynamoDB::Table'),
+      );
+      const functions = template.findResources('AWS::Lambda::Function', {
+        Properties: {
+          FunctionName: Match.stringLikeRegexp('chat-api-ts-threads-invoke-ts'),
+        },
+      });
+      const roleId =
+        Object.values(functions)[0].Properties.Role['Fn::GetAtt'][0];
+
+      template.hasResourceProperties('AWS::IAM::Policy', {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Resource: Match.arrayWith([{ 'Fn::GetAtt': [tableId, 'Arn'] }]),
+            }),
+          ]),
+        },
+        Roles: Match.arrayWith([Match.objectLike({ Ref: roleId })]),
+      });
+    });
+  });
+
+  describe('DynamoDB thread table', () => {
+    it('creates the table with the keys and TTL attribute the repository expects', () => {
+      const template = stackTemplate();
+
+      template.hasResourceProperties('AWS::DynamoDB::Table', {
+        TableName: Match.stringLikeRegexp('chat-api-ts-threads'),
+        KeySchema: [
+          { AttributeName: 'pk', KeyType: 'HASH' },
+          { AttributeName: 'sk', KeyType: 'RANGE' },
+        ],
+        TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },
+      });
+    });
+
+    it('retains the table for non-ephemeral environments', () => {
+      vi.stubEnv('ENVIRONMENT', 'prod');
+
+      const productionTemplate = stackTemplate();
+
+      productionTemplate.hasResource('AWS::DynamoDB::Table', {
+        DeletionPolicy: 'Retain',
+      });
+
+      vi.unstubAllEnvs();
+      const template = stackTemplate();
+
+      template.hasResource('AWS::DynamoDB::Table', {
+        DeletionPolicy: 'Delete',
       });
     });
   });
