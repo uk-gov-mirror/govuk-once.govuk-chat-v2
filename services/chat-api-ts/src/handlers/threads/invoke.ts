@@ -26,6 +26,7 @@ import {
   type JsonErrorResponse,
 } from '../../http/errors.ts';
 import { logger } from '../../logging/logger.ts';
+import { resolveThread } from '../../persistence/threads.ts';
 import { relayAgentEventStream } from '../../streaming/agent-event-stream.ts';
 
 const agentRuntimeArn = process.env.AGENT_RUNTIME_ARN;
@@ -50,8 +51,21 @@ async function invokeAgent(
   const endUserId = event.headers['end-user-id'];
   const body = event.body;
 
+  let thread;
+  try {
+    thread = await resolveThread({ endUserId, userThreadId: body.threadId });
+  } catch (error) {
+    logger.error('Thread resolution failed', {
+      error,
+      userThreadId: body.threadId,
+      runId: body.runId,
+    });
+    return buildJsonErrorResponse(500, { error: 'Agent invocation error' });
+  }
+
+  const { systemThreadId } = thread;
   const payload = {
-    threadId: body.threadId,
+    threadId: systemThreadId,
     runId: body.runId,
     state: body.state ?? {},
     messages: body.messages ?? [],
@@ -64,7 +78,7 @@ async function invokeAgent(
   try {
     const command = new InvokeAgentRuntimeCommand({
       agentRuntimeArn,
-      runtimeSessionId: body.threadId,
+      runtimeSessionId: systemThreadId,
       contentType: 'application/json',
       accept: 'text/event-stream',
       qualifier: 'DEFAULT',
@@ -75,7 +89,8 @@ async function invokeAgent(
   } catch (error) {
     logger.error('Agent runtime invocation failed', {
       error,
-      threadId: body.threadId,
+      threadId: systemThreadId,
+      userThreadId: body.threadId,
       runId: body.runId,
     });
     return buildJsonErrorResponse(500, { error: 'Agent invocation error' });
@@ -85,7 +100,8 @@ async function invokeAgent(
   // it being absent even though the runtime should always return a body.
   if (!response.response) {
     logger.error('Agent runtime returned no response body', {
-      threadId: body.threadId,
+      threadId: systemThreadId,
+      userThreadId: body.threadId,
       runId: body.runId,
     });
     return buildJsonErrorResponse(500, { error: 'Agent invocation error' });
@@ -93,7 +109,7 @@ async function invokeAgent(
 
   const agentEvents = relayAgentEventStream({
     source: response.response as AsyncIterable<Uint8Array>,
-    threadId: body.threadId,
+    threadId: systemThreadId,
     runId: body.runId,
   });
 
