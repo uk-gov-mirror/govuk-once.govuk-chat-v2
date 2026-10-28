@@ -165,7 +165,7 @@ export class ChatApiStack extends cdk.Stack {
   table(): dynamodb.Table {
     const tableName = `${getResourceNamePrefix()}-chat-api`;
 
-    return new dynamodb.Table(this, tableName, {
+    const table = new dynamodb.Table(this, tableName, {
       tableName,
       partitionKey: { name: 'pk', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
@@ -175,6 +175,15 @@ export class ChatApiStack extends cdk.Stack {
         ? cdk.RemovalPolicy.DESTROY
         : cdk.RemovalPolicy.RETAIN,
     });
+
+    table.addGlobalSecondaryIndex({
+      indexName: 'gsi1',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    return table;
   }
 
   apiGateway(
