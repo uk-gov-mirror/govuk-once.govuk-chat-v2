@@ -132,6 +132,11 @@ const Message = new Entity({
         casing: 'none',
       },
     },
+    byCreatedAt: {
+      index: 'gsi1',
+      pk: { field: 'gsi1pk', composite: ['systemThreadId'] },
+      sk: { field: 'gsi1sk', composite: ['createdAt', 'messageId'] },
+    },
   },
 });
 
