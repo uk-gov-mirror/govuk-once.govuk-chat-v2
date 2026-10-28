@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-21
 
-**Status:** accepted
+**Status:** implemented
 
 ## Problem
 
