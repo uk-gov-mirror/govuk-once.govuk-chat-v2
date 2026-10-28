@@ -51,7 +51,6 @@ export type ThreadMessagesPathParameters = z.infer<
 >;
 
 export const ThreadMessagesQuerySchema = z.object({
-  before: z.uuid({ message: 'before must be a valid message UUID' }).optional(),
   cursor: CursorSchema.optional(),
 });
 

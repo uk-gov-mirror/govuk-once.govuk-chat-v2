@@ -26,20 +26,25 @@ import {
 import { logger } from '../../logging/logger.ts';
 import {
   lookupThread,
-  getMessages,
-  sliceMessages,
+  getMessagePage,
+  type PageStart,
 } from '../../persistence/messages.ts';
+import { encodeCursor } from '../../schemas/cursor.ts';
 
 type ListMessagesEvent = ValidatedHeadersEvent<ClientInputHeaders> &
   ValidatedPathParametersEvent<ThreadMessagesPathParameters> &
   ValidatedQueryEvent<ThreadMessagesQuery>;
+
+function messagesPageUrl(threadId: string, start: PageStart): string {
+  return `/v1/threads/${threadId}/messages?cursor=${encodeCursor(start)}`;
+}
 
 async function listMessages(
   event: ListMessagesEvent,
 ): Promise<APIGatewayProxyResult | JsonErrorResponse> {
   const endUserId = event.headers['end-user-id'];
   const { threadId } = event.pathParameters;
-  const { before } = event.queryStringParameters;
+  const { cursor } = event.queryStringParameters;
 
   let thread;
   try {
@@ -56,9 +61,9 @@ async function listMessages(
     return buildJsonErrorResponse(404, { error: 'Thread not found' });
   }
 
-  let messages;
+  let page;
   try {
-    messages = await getMessages(thread.systemThreadId);
+    page = await getMessagePage(thread.systemThreadId, cursor);
   } catch (error) {
     logger.error('Message retrieval failed', {
       error,
@@ -67,23 +72,25 @@ async function listMessages(
     return buildJsonErrorResponse(500, { error: 'Messages retrieval error' });
   }
 
-  const result = sliceMessages(messages, before);
-
-  const earlierMessagesUrl = result.oldestMessageId
-    ? `/v1/threads/${threadId}/messages?before=${result.oldestMessageId}`
+  const earlierMessagesUrl = page.earlier
+    ? messagesPageUrl(threadId, { direction: 'before', position: page.earlier })
+    : undefined;
+  const laterMessagesUrl = page.later
+    ? messagesPageUrl(threadId, { direction: 'after', position: page.later })
     : undefined;
 
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      messages: result.messages.map((message) => ({
+      messages: page.messages.map((message) => ({
         id: message.messageId,
         role: message.role,
         content: message.content,
         createdAt: message.createdAt,
       })),
-      earlier_messages_url: earlierMessagesUrl,
+      earlierMessagesUrl,
+      laterMessagesUrl,
     }),
   };
 }

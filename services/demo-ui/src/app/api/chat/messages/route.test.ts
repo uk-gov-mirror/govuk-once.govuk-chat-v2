@@ -43,7 +43,7 @@ describe('GET', () => {
     listThreadMessages.mockResolvedValueOnce(
       Response.json({
         messages: MESSAGES,
-        earlier_messages_url: `/v1/threads/${THREAD_ID}/messages?before=x`,
+        earlierMessagesUrl: `/v1/threads/${THREAD_ID}/messages?cursor=x`,
       }),
     );
     const request = messagesRequest();

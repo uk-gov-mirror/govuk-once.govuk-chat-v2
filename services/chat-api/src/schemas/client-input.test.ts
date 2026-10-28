@@ -306,21 +306,6 @@ describe('ThreadMessagesQuerySchema', () => {
     expect(result.data).toEqual({});
   });
 
-  it('accepts an optional before as a UUID', () => {
-    const id = crypto.randomUUID();
-    const result = ThreadMessagesQuerySchema.safeParse({ before: id });
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual({ before: id });
-  });
-
-  it('rejects a before that is not a UUID', () => {
-    expectInputFailure(
-      ThreadMessagesQuerySchema,
-      { before: 'not-a-uuid' },
-      { before: ['before must be a valid message UUID'] },
-    );
-  });
-
   it('decodes an optional cursor into a page start', () => {
     const start = {
       direction: 'before',
